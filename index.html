@@ -140,12 +140,12 @@ summary { cursor: pointer; font-weight: 700; color: var(--accent); }
             <div class="lbl"><label for="b-los">Durchschnittliche Aufenthaltsdauer</label><button class="info" type="button" aria-label="Info" data-hint="b-los-h">i</button></div>
             <input type="number" id="b-los" value="" min="0" step="0.1">
             <select id="b-los-u" aria-label="Zeiteinheit Aufenthaltsdauer"><option value="1">Tage</option><option value="0.0416666667">Std</option></select>
-            <div class="hint" id="b-los-h" hidden>Mittlere Dauer, während der ein Patient die Kapazität belegt, zum Beispiel die Verweildauer im Bett. Im Erlang-B-Modell zählt nur der Mittelwert, nicht die Verteilung.</div>
+            <div class="hint" id="b-los-h" hidden>Mittlere Dauer, während der ein Patient die Kapazität belegt, zum Beispiel die Verweildauer im Bett. Im Erlang-B-Modell zählt praktisch nur der Mittelwert, nicht die Streuung.</div>
           </div>
           <div class="row wide">
             <div class="lbl"><label for="b-fano">Variationskoeffizient der Ankünfte</label><button class="info" type="button" aria-label="Info" data-hint="b-fano-h">i</button></div>
             <input type="number" id="b-fano" value="1" min="0" step="0.1">
-            <div class="hint" id="b-fano-h" hidden>Standardabweichung ÷ Mittelwert der Zwischenankunftszeiten. 1 entspricht zufälligen Poisson-Ankünften (klassisches Erlang B). Werte über 1 bedeuten stärker schwankende Nachfrage, z. B. durch Wochentags- oder Saisonmuster. Intern rechnet das Tool mit dem Fano-Faktor z = VK² und der Hayward-Näherung.</div>
+            <div class="hint" id="b-fano-h" hidden>Standardabweichung ÷ Mittelwert der Zeit zwischen zwei Ankünften. 1 entspricht zufälligen Poisson-Ankünften (klassisches Erlang B). Werte über 1 bedeuten stärker schwankende Nachfrage, z. B. durch Wochentags- oder Saisonmuster. Kennen Sie den Fano-Faktor der Eintritte (Varianz ÷ Mittelwert der Eintritte pro Tag), geben Sie dessen Wurzel ein. Intern rechnet das Tool die Peakedness der Belegung z ≈ (1 + VK²) ÷ 2 und verwendet die Hayward-Näherung.</div>
           </div>
 
           <div class="colhead" style="margin-top:14px">Vorgabe wählen</div>
@@ -213,16 +213,16 @@ summary { cursor: pointer; font-weight: 700; color: var(--accent); }
       </details>
       <details>
         <summary>Variationskoeffizient der Ankünfte und Hayward-Näherung</summary>
-        <p>Der Variationskoeffizient VK der Ankünfte ist Standardabweichung ÷ Mittelwert der Zwischenankunftszeiten. Bei VK = 1 sind die Ankünfte Poisson-verteilt. Bei VK &gt; 1 schwankt die Nachfrage stärker, und dieselbe Kapazität führt zu mehr Ablehnungen.</p>
-        <p>Das Tool rechnet den VK in den Fano-Faktor z (Varianz ÷ Mittelwert der Anzahl Ankünfte) um:</p>
-        <div class="formula">z = VK²</div>
+        <p>Der Variationskoeffizient VK der Ankünfte ist Standardabweichung ÷ Mittelwert der Zeit zwischen zwei Ankünften. VK = 1 entspricht zufälligen Poisson-Ankünften. Bei VK &gt; 1 schwankt die Nachfrage stärker, und dieselbe Kapazität führt zu mehr Ablehnungen.</p>
+        <p>VK² entspricht etwa dem Fano-Faktor der Ankünfte, also Varianz ÷ Mittelwert der Eintritte pro Tag. Die Hayward-Näherung braucht aber die Peakedness z der Belegung: Varianz ÷ Mittelwert der belegten Betten bei unbegrenzter Kapazität. Weil die Aufenthalte unterschiedlich lang sind, gleicht sich ein Teil der Schwankung aus. Das Tool rechnet deshalb:</p>
+        <div class="formula">z ≈ (1 + VK²) ÷ 2</div>
         <div class="formula">B(A, c, z) ≈ B(A ÷ z, c ÷ z)</div>
-        <p>Für nicht ganzzahlige c ÷ z verwendet das Tool die stetige Erweiterung der Erlang-B-Formel.</p>
+        <p>Die Umrechnung gilt für Aufenthaltsdauern, die etwa so stark streuen wie eine Exponentialverteilung. Das ist für Spitalaufenthalte eine übliche Annahme. Für nicht ganzzahlige c ÷ z verwendet das Tool die stetige Erweiterung der Erlang-B-Formel.</p>
       </details>
       <details>
         <summary>Allgemeine Prinzipien</summary>
         <ul>
-          <li>Je weniger Schwankung in Ankünften und Servicezeiten, desto weniger Ablehnungen bei gleicher Auslastung.</li>
+          <li>Je weniger die Ankünfte schwanken, desto weniger Ablehnungen bei gleicher Auslastung. Die Streuung der Aufenthaltsdauer spielt bei Erlang B kaum eine Rolle, nur ihr Mittelwert.</li>
           <li>Skaleneffekt: Ein grosses System schneidet besser ab als zwei kleine, die Kapazität und Zufluss teilen, sofern die Verweildauern ähnlich sind.</li>
           <li>Auslastung und Zugang lassen sich nicht gleichzeitig maximieren.</li>
         </ul>
@@ -425,7 +425,7 @@ window.addEventListener('hashchange', () => show(location.hash === '#erlang-c' ?
 let chartB = null, chartC = null, lastB = null, lastC = null;
 function solveB() {
   const lam = num('b-lam') * num('b-lam-u'), los = num('b-los') * num('b-los-u');
-  const vk = has('b-fano') ? num('b-fano') : 1, z = Math.max(0.05, vk * vk), A = lam * los;
+  const vk = has('b-fano') ? num('b-fano') : 1, z = Math.max(0.05, (1 + vk * vk) / 2), A = lam * los;
   const mode = document.querySelector('input[name="b-solve"]:checked').value;
   const occAt = c => A * (1 - blocking(A, c, z)) / c;
   let c = Math.max(1, Math.round(num('b-c'))), note = '';
@@ -599,7 +599,7 @@ function renderScenB() {
   if (!scenB.length) { $('b-scen').innerHTML = '<p class="empty">Noch keine Szenarien. Ergebnis oben benennen und mit «Szenario speichern» übernehmen.</p>'; return; }
   let h = '<table><thead><tr><th>Szenario</th><th>Ankünfte/Tag</th><th>Aufenthaltsdauer (Tage)</th><th>VK Ankünfte</th><th>Kapazität</th><th>Auslastung</th><th>P(Ablehnung)</th><th></th></tr></thead><tbody>';
   scenB.forEach((s, i) => {
-    h += `<tr><td>${esc(s.name)}${s.ex ? '<span class="tag">Beispiel</span>' : ''}</td><td>${fmt(s.lam, 1)}</td><td>${fmt(s.los, 1)}</td><td>${fmt(s.vk != null ? s.vk : Math.sqrt(s.z), 2)}</td><td>${s.c}</td><td>${pct(s.occ)}</td><td>${pct(s.B)}</td>
+    h += `<tr><td>${esc(s.name)}${s.ex ? '<span class="tag">Beispiel</span>' : ''}</td><td>${fmt(s.lam, 1)}</td><td>${fmt(s.los, 1)}</td><td>${fmt(s.vk != null ? s.vk : Math.sqrt(Math.max(0, 2 * s.z - 1)), 2)}</td><td>${s.c}</td><td>${pct(s.occ)}</td><td>${pct(s.B)}</td>
       <td><button class="btn ghost small" type="button" data-del-b="${i}">Entfernen</button></td></tr>`;
   });
   $('b-scen').innerHTML = h + '</tbody></table>';
