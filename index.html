@@ -82,7 +82,9 @@ input[type="radio"] { width: 18px; height: 18px; accent-color: var(--accent); }
 .btn.small { padding: 4px 10px; font-size: 13px; }
 .namefield { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--field); color: var(--fg); min-width: 0; flex: 1 1 180px; max-width: 280px; }
 .chartbox { position: relative; height: 320px; }
-.chartbox + .chartbox, .tablewrap + .chartbox { margin-top: 18px; }
+.chartbox + .chartbox, .tablewrap + .chartbox, .tablewrap + .scenbox { margin-top: 18px; }
+.chartbox.small { height: 210px; }
+.minihead { font-size: 15px; font-weight: 700; color: var(--accent-deep); margin: 22px 0 6px; }
 .seg { display: inline-flex; border: 1.5px solid var(--accent); border-radius: 6px; overflow: hidden; margin-bottom: 12px; flex-wrap: wrap; }
 .seg button { font: inherit; font-weight: 700; font-size: 14px; padding: 7px 14px; border: 0; background: transparent; color: var(--accent); cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
@@ -191,7 +193,11 @@ summary { cursor: pointer; font-weight: 700; color: var(--accent); }
     <div class="card">
       <h2>Szenarien im Vergleich</h2>
       <div class="tablewrap" id="b-scen"></div>
-      <div class="chartbox" id="b-scen-box"><canvas id="b-scen-chart" aria-label="Diagramm Szenarienvergleich Erlang B" role="img"></canvas></div>
+      <div class="scenbox" id="b-scen-box">
+        <div class="chartbox"><canvas id="b-scen-chart" aria-label="Diagramm Szenarienvergleich Erlang B" role="img"></canvas></div>
+        <div class="minihead">Kapazität je Szenario</div>
+        <div class="chartbox small"><canvas id="b-cap-chart" aria-label="Diagramm Kapazität je Szenario Erlang B" role="img"></canvas></div>
+      </div>
     </div>
 
     <div class="card prose">
@@ -291,7 +297,11 @@ summary { cursor: pointer; font-weight: 700; color: var(--accent); }
     <div class="card">
       <h2>Szenarien im Vergleich</h2>
       <div class="tablewrap" id="c-scen"></div>
-      <div class="chartbox" id="c-scen-box"><canvas id="c-scen-chart" aria-label="Diagramm Szenarienvergleich Erlang C" role="img"></canvas></div>
+      <div class="scenbox" id="c-scen-box">
+        <div class="chartbox"><canvas id="c-scen-chart" aria-label="Diagramm Szenarienvergleich Erlang C" role="img"></canvas></div>
+        <div class="minihead">Kapazität je Szenario</div>
+        <div class="chartbox small"><canvas id="c-cap-chart" aria-label="Diagramm Kapazität je Szenario Erlang C" role="img"></canvas></div>
+      </div>
     </div>
 
     <div class="card prose">
@@ -544,7 +554,25 @@ $('c-x-server').addEventListener('click', () => setCMode('server'));
 $('c-x-lam').addEventListener('click', () => setCMode('lam'));
 
 /* ---------- Diagramm ---------- */
-function drawChart(ch, id, data, xTitle, axes, type = 'line') {
+/* Kapazität als Beschriftung über jeder Szenario-Gruppe */
+const capPlugin = {
+  id: 'capLabels',
+  afterDatasetsDraw(chart, args, o) {
+    if (!o || !o.values) return;
+    const { ctx, chartArea, scales: { x } } = chart;
+    ctx.save();
+    ctx.font = 'bold 14px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    o.values.forEach((v, i) => {
+      const t = `Kapazität ${v}`, w = ctx.measureText(t).width + 18, h = 24;
+      const cx = x.getPixelForValue(i), cy = chartArea.top - h / 2 - 8;
+      ctx.fillStyle = css('--accent-soft'); ctx.strokeStyle = css('--chart-a'); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(cx - w / 2, cy - h / 2, w, h, 4); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = css('--accent-deep'); ctx.fillText(t, cx, cy + 1);
+    });
+    ctx.restore();
+  }
+};
+function drawChart(ch, id, data, xTitle, axes, type = 'line', caps = null) {
   const fg = css('--muted'), grid = css('--line');
   const scales = { x: { title: { display: true, text: xTitle, color: fg }, ticks: { color: fg }, grid: { display: false } } };
   for (const [k, a] of Object.entries(axes)) {
@@ -555,8 +583,9 @@ function drawChart(ch, id, data, xTitle, axes, type = 'line') {
     plugins: { legend: { position: 'bottom', labels: { color: css('--fg'), font: { family: 'Arial' } } },
       tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y == null ? '–' : fmt(c.parsed.y, 1)}` } } },
     scales };
+  if (caps) { opts.plugins.capLabels = { values: caps }; opts.layout = { padding: { top: 40 } }; }
   if (ch) { ch.data = data; ch.options = opts; ch.update(); return ch; }
-  return new Chart($(id), { type, data, options: opts });
+  return new Chart($(id), { type, data, options: opts, plugins: [capPlugin] });
 }
 
 /* ---------- Szenarien ---------- */
@@ -591,14 +620,34 @@ function renderScenC() {
   drawScenC();
   document.querySelectorAll('[data-del-c]').forEach(b => b.addEventListener('click', () => { scenC.splice(+b.dataset.delC, 1); store(KEY_C, scenC); renderScenC(); }));
 }
-let chartSB = null, chartSC = null;
+let chartSB = null, chartSC = null, chartCB = null, chartCC = null;
+/* Kapazität je Szenario als eigenes Balkendiagramm mit Werten */
+const valPlugin = {
+  id: 'valLabels',
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart, meta = chart.getDatasetMeta(0);
+    ctx.save(); ctx.font = 'bold 14px Arial'; ctx.fillStyle = css('--fg'); ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    meta.data.forEach((bar, i) => ctx.fillText(fmt(chart.data.datasets[0].data[i], 0), bar.x, bar.y - 4));
+    ctx.restore();
+  }
+};
+function drawCap(ch, id, scen) {
+  const fg = css('--muted'), max = Math.max(...scen.map(x => x.c));
+  const data = { labels: scen.map(x => x.name), datasets: [{ label: 'Kapazität', data: scen.map(x => x.c), backgroundColor: css('--muted'), maxBarThickness: 90 }] };
+  const opts = { responsive: true, maintainAspectRatio: false, animation: false, layout: { padding: { top: 22 } },
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `Kapazität: ${fmt(c.parsed.y, 0)}` } } },
+    scales: { x: { ticks: { color: fg }, grid: { display: false } },
+      y: { min: 0, suggestedMax: max * 1.1, title: { display: true, text: 'Kapazität', color: fg }, ticks: { color: fg, precision: 0 }, grid: { color: css('--line') } } } };
+  if (ch) { ch.data = data; ch.options = opts; ch.update(); return ch; }
+  return new Chart($(id), { type: 'bar', data, options: opts, plugins: [valPlugin] });
+}
 function drawScenB() {
   if (!window.Chart || !scenB.length) return;
   const data = { labels: scenB.map(x => x.name), datasets: [
     { type: 'bar', label: 'Auslastung [%]', data: scenB.map(x => x.occ * 100), yAxisID: 'y', backgroundColor: css('--chart-a'), order: 2 },
-    { type: 'bar', label: 'Wahrscheinlichkeit der Ablehnung [%]', data: scenB.map(x => x.B * 100), yAxisID: 'y', backgroundColor: css('--chart-b'), order: 2 },
-    { type: 'line', label: 'Kapazität', data: scenB.map(x => x.c), yAxisID: 'y2', borderColor: css('--muted'), backgroundColor: css('--muted'), borderWidth: 0, showLine: false, pointRadius: 6, pointStyle: 'rectRot', order: 1 } ] };
-  chartSB = drawChart(chartSB, 'b-scen-chart', data, 'Szenario', { y: { min: 0, max: 100, title: 'Prozent' }, y2: { min: 0, title: 'Kapazität' } }, 'bar');
+    { type: 'bar', label: 'Wahrscheinlichkeit der Ablehnung [%]', data: scenB.map(x => x.B * 100), yAxisID: 'y', backgroundColor: css('--chart-b'), order: 2 } ] };
+  chartSB = drawChart(chartSB, 'b-scen-chart', data, 'Szenario', { y: { min: 0, max: 100, title: 'Prozent' } }, 'bar', scenB.map(x => x.c));
+  chartCB = drawCap(chartCB, 'b-cap-chart', scenB);
 }
 function drawScenC() {
   if (!window.Chart || !scenC.length) return;
@@ -606,7 +655,8 @@ function drawScenC() {
   const data = { labels: scenC.map(x => x.name), datasets: [
     { type: 'bar', label: 'Durchschnittliche Wartezeit [Min.]', data: scenC.map((x, i) => st[i] ? x.wq : null), yAxisID: 'y', backgroundColor: css('--chart-a'), order: 2 },
     { type: 'line', label: 'Servicelevel [%]', data: scenC.map((x, i) => st[i] && x.hasT !== false ? x.sl * 100 : null), yAxisID: 'y2', borderColor: css('--chart-b'), backgroundColor: css('--chart-b'), borderWidth: 0, showLine: false, pointRadius: 6, order: 1 } ] };
-  chartSC = drawChart(chartSC, 'c-scen-chart', data, 'Szenario', { y: { min: 0, title: 'Minuten' }, y2: { min: 0, max: 100, title: 'Prozent' } }, 'bar');
+  chartSC = drawChart(chartSC, 'c-scen-chart', data, 'Szenario', { y: { min: 0, title: 'Minuten' }, y2: { min: 0, max: 100, title: 'Prozent' } }, 'bar', scenC.map(x => x.c));
+  chartCC = drawCap(chartCC, 'c-cap-chart', scenC);
 }
 
 $('b-save').addEventListener('click', () => {
