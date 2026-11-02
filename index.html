@@ -82,6 +82,10 @@ input[type="radio"] { width: 18px; height: 18px; accent-color: var(--accent); }
 .btn.small { padding: 4px 10px; font-size: 13px; }
 .namefield { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--field); color: var(--fg); min-width: 0; flex: 1 1 180px; max-width: 280px; }
 .chartbox { position: relative; height: 320px; }
+.chartbox + .chartbox, .tablewrap + .chartbox { margin-top: 18px; }
+.seg { display: inline-flex; border: 1.5px solid var(--accent); border-radius: 6px; overflow: hidden; margin-bottom: 12px; flex-wrap: wrap; }
+.seg button { font: inherit; font-weight: 700; font-size: 14px; padding: 7px 14px; border: 0; background: transparent; color: var(--accent); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .legendnote { font-size: 13px; color: var(--muted); margin-top: 8px; }
 .tablewrap { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -185,6 +189,7 @@ summary { cursor: pointer; font-weight: 700; color: var(--accent); }
     <div class="card">
       <h2>Szenarien im Vergleich</h2>
       <div class="tablewrap" id="b-scen"></div>
+      <div class="chartbox" id="b-scen-box"><canvas id="b-scen-chart" aria-label="Diagramm Szenarienvergleich Erlang B" role="img"></canvas></div>
     </div>
 
     <div class="card prose">
@@ -269,14 +274,19 @@ summary { cursor: pointer; font-weight: 700; color: var(--accent); }
     </div>
 
     <div class="card">
-      <h2>Wartezeit und Servicelevel nach Kapazität</h2>
-      <p class="sub">Gleiche Nachfrage, unterschiedliche Anzahl Server. Unter der Stabilitätsgrenze λ &lt; c · μ gibt es keinen Wert.</p>
+      <h2>Wartezeit und Servicelevel im Verlauf</h2>
+      <div class="seg" role="group" aria-label="Diagramm wählen">
+        <button type="button" id="c-x-server" aria-pressed="true">nach Anzahl Server</button>
+        <button type="button" id="c-x-lam" aria-pressed="false">nach Ankünften</button>
+      </div>
+      <p class="sub" id="c-chart-sub">Gleiche Nachfrage, unterschiedliche Anzahl Server. Die aktuelle Wahl ist markiert.</p>
       <div class="chartbox"><canvas id="c-chart" aria-label="Diagramm Wartezeit und Servicelevel nach Kapazität" role="img"></canvas></div>
     </div>
 
     <div class="card">
       <h2>Szenarien im Vergleich</h2>
       <div class="tablewrap" id="c-scen"></div>
+      <div class="chartbox" id="c-scen-box"><canvas id="c-scen-chart" aria-label="Diagramm Szenarienvergleich Erlang C" role="img"></canvas></div>
     </div>
 
     <div class="card prose">
@@ -467,29 +477,50 @@ function calcC() {
   $('c-out').innerHTML = h;
   drawC(lastC);
 }
+let cMode = 'server';
+function niceStep(x) { const p = Math.pow(10, Math.floor(Math.log10(x))), f = x / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p; }
 function drawC(r) {
-  if (!window.Chart) return;
-  const a = r.lam * r.es, lo = Math.max(1, Math.floor(a) + 1), hi = Math.max(r.c + 6, lo + 8);
-  const xs = [], wq = [], sl = [];
-  for (let c = Math.max(1, Math.min(lo, r.c) - 1); c <= hi; c++) {
-    const g = ggc(r.lam, r.es, c, r.ca, r.cs, r.t);
-    xs.push(c); wq.push(g.stable ? g.wq : null); sl.push(g.stable ? g.sl * 100 : null);
+  if (!window.Chart || !(r.lam > 0) || !(r.es > 0)) return;
+  const mark = (xs, i0) => xs.map((_, i) => i === i0 ? 6 : 3);
+  if (cMode === 'server') {
+    $('c-chart-sub').textContent = 'Gleiche Nachfrage, unterschiedliche Anzahl Server. Unterhalb der Stabilitätsgrenze λ < c · μ gibt es keinen Wert.';
+    const a = r.lam * r.es, lo = Math.max(1, Math.floor(a) + 1), hi = Math.max(r.c + 6, lo + 8);
+    const xs = [], wq = [], sl = [];
+    for (let c = Math.max(1, Math.min(lo, r.c) - 1); c <= hi; c++) {
+      const g = ggc(r.lam, r.es, c, r.ca, r.cs, r.t);
+      xs.push(c); wq.push(g.stable ? g.wq : null); sl.push(g.stable ? g.sl * 100 : null);
+    }
+    const idx = xs.indexOf(r.c);
+    const data = { labels: xs, datasets: [
+      { label: 'Durchschnittliche Wartezeit [Min.]', data: wq, yAxisID: 'y', borderColor: css('--chart-b'), backgroundColor: css('--chart-b'), borderWidth: 2.5, tension: .25, pointRadius: xs.map((_, i) => i === idx ? 6 : 0) },
+      { label: 'Servicelevel [%]', data: sl, yAxisID: 'y2', borderColor: css('--chart-a'), backgroundColor: css('--chart-a'), borderWidth: 2.5, tension: .25, pointRadius: xs.map((_, i) => i === idx ? 6 : 0) } ] };
+    chartC = drawChart(chartC, 'c-chart', data, 'Anzahl Server', { y: { min: 0, title: 'Minuten' }, y2: { min: 0, max: 100, title: 'Prozent' } });
+  } else {
+    const u = num('c-lam-u'), unit = $('c-lam-u').selectedOptions[0].textContent;
+    const cur = r.lam * u, limit = r.c / r.es * u;
+    const start = Math.max(0, cur * 0.5), step = niceStep(Math.max(limit - start, 1e-6) / 10);
+    const xs = [], wq = [], sl = [], rho = [], pw = [];
+    for (let x = Math.floor(start / step) * step; x < limit - 1e-9 && xs.length < 40; x += step) {
+      if (x <= 0) continue;
+      const g = ggc(x / u, r.es, r.c, r.ca, r.cs, r.t);
+      xs.push(+x.toFixed(4)); wq.push(g.wq); sl.push(g.sl * 100); rho.push(g.rho * 100); pw.push(g.pw * 100);
+    }
+    $('c-chart-sub').textContent = `Gleiche Kapazität (${r.c} Server), unterschiedlich viele Ankünfte ${unit}. Ab ${fmt(limit, 1)} ${unit} ist das System instabil.`;
+    let idx = xs.findIndex(x => Math.abs(x - cur) < step / 2);
+    const data = { labels: xs.map(x => fmt(x, step < 1 ? 1 : 0)), datasets: [
+      { label: 'Auslastung [%]', data: rho, yAxisID: 'y2', borderColor: css('--chart-a'), backgroundColor: css('--chart-a'), borderWidth: 2.5, tension: .2, pointRadius: mark(xs, idx) },
+      { label: 'Servicelevel [%]', data: sl, yAxisID: 'y2', borderColor: css('--muted'), backgroundColor: css('--muted'), borderWidth: 2.5, tension: .2, pointRadius: mark(xs, idx) },
+      { label: 'Wahrscheinlichkeit Warten [%]', data: pw, yAxisID: 'y2', borderColor: css('--chart-b'), backgroundColor: css('--chart-b'), borderWidth: 2.5, tension: .2, pointRadius: mark(xs, idx) },
+      { label: 'Durchschnittliche Wartezeit [Min.]', data: wq, yAxisID: 'y', borderColor: css('--accent-deep'), backgroundColor: css('--accent-deep'), borderWidth: 2, borderDash: [6, 4], tension: .2, pointRadius: mark(xs, idx) } ] };
+    chartC = drawChart(chartC, 'c-chart', data, `Ankünfte ${unit}`, { y: { min: 0, title: 'Minuten' }, y2: { min: 0, max: 100, title: 'Prozent' } });
   }
-  const idx = xs.indexOf(r.c);
-  const data = {
-    labels: xs,
-    datasets: [
-      { label: 'Durchschnittliche Wartezeit [Min.]', data: wq, yAxisID: 'y', borderColor: css('--chart-b'), backgroundColor: css('--chart-b'), borderWidth: 2.5, tension: .25, spanGaps: false,
-        pointRadius: xs.map((_, i) => i === idx ? 6 : 0) },
-      { label: 'Servicelevel [%]', data: sl, yAxisID: 'y2', borderColor: css('--chart-a'), backgroundColor: css('--chart-a'), borderWidth: 2.5, tension: .25, spanGaps: false,
-        pointRadius: xs.map((_, i) => i === idx ? 6 : 0) }
-    ]
-  };
-  chartC = drawChart(chartC, 'c-chart', data, 'Anzahl Server', { y: { min: 0, title: 'Minuten' }, y2: { min: 0, max: 100, title: 'Prozent' } });
 }
+function setCMode(m) { cMode = m; $('c-x-server').setAttribute('aria-pressed', m === 'server'); $('c-x-lam').setAttribute('aria-pressed', m === 'lam'); if (lastC) drawC(lastC); }
+$('c-x-server').addEventListener('click', () => setCMode('server'));
+$('c-x-lam').addEventListener('click', () => setCMode('lam'));
 
 /* ---------- Diagramm ---------- */
-function drawChart(ch, id, data, xTitle, axes) {
+function drawChart(ch, id, data, xTitle, axes, type = 'line') {
   const fg = css('--muted'), grid = css('--line');
   const scales = { x: { title: { display: true, text: xTitle, color: fg }, ticks: { color: fg }, grid: { display: false } } };
   for (const [k, a] of Object.entries(axes)) {
@@ -501,7 +532,7 @@ function drawChart(ch, id, data, xTitle, axes) {
       tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y == null ? '–' : fmt(c.parsed.y, 1)}` } } },
     scales };
   if (ch) { ch.data = data; ch.options = opts; ch.update(); return ch; }
-  return new Chart($(id), { type: 'line', data, options: opts });
+  return new Chart($(id), { type, data, options: opts });
 }
 
 /* ---------- Szenarien ---------- */
@@ -509,13 +540,14 @@ const KEY_B = 'erlang-b-szenarien', KEY_C = 'erlang-c-szenarien';
 let scenB = store(KEY_B), scenC = store(KEY_C);
 if (!Array.isArray(scenB)) scenB = [
   { name: 'Übung: 20 Betten', ex: true, lam: 5, los: 4, z: 1, c: 20, occ: 20 * (1 - erlangB(20, 20)) / 20, B: erlangB(20, 20) },
-  { name: 'Übung: 5 % Abweisung', ex: true, lam: 5, los: 4, z: 1, c: 25, occ: 20 * (1 - erlangB(20, 25)) / 25, B: erlangB(20, 25) }
+  { name: 'Übung: max. 5 % Abweisung', ex: true, lam: 5, los: 4, z: 1, c: 26, occ: 20 * (1 - erlangB(20, 26)) / 26, B: erlangB(20, 26) }
 ];
 if (!Array.isArray(scenC)) scenC = [
   ['Basis: 4 Zimmer, 10 Min.', 18, 10, 4], ['Prozess: 8 Min.', 18, 8, 4], ['Kapazität: 5 Zimmer', 18, 10, 5]
 ].map(([name, l, s, c]) => { const g = ggc(l / 60, s, c, 1, 1, 15); return { name, ex: true, lam: l, es: s, c, ca: 1, cs: 1, t: 15, rho: g.rho, pw: g.pw, wq: g.wq, lq: g.lq, sl: g.sl, stable: true }; });
 
 function renderScenB() {
+  $('b-scen-box').hidden = !scenB.length;
   if (!scenB.length) { $('b-scen').innerHTML = '<p class="empty">Noch keine Szenarien. Ergebnis oben benennen und mit «Szenario speichern» übernehmen.</p>'; return; }
   let h = '<table><thead><tr><th>Szenario</th><th>Eintritte/Tag</th><th>Verweildauer (Tage)</th><th>Fano</th><th>Betten</th><th>Auslastung</th><th>Abweisung</th><th></th></tr></thead><tbody>';
   scenB.forEach((s, i) => {
@@ -523,9 +555,11 @@ function renderScenB() {
       <td><button class="btn ghost small" type="button" data-del-b="${i}">Entfernen</button></td></tr>`;
   });
   $('b-scen').innerHTML = h + '</tbody></table>';
+  drawScenB();
   document.querySelectorAll('[data-del-b]').forEach(b => b.addEventListener('click', () => { scenB.splice(+b.dataset.delB, 1); store(KEY_B, scenB); renderScenB(); }));
 }
 function renderScenC() {
+  $('c-scen-box').hidden = !scenC.length;
   if (!scenC.length) { $('c-scen').innerHTML = '<p class="empty">Noch keine Szenarien. Ergebnis oben benennen und mit «Szenario speichern» übernehmen.</p>'; return; }
   let h = '<table><thead><tr><th>Szenario</th><th>Ankünfte/Std</th><th>Dauer (Min.)</th><th>VK Ank. / Dauer</th><th>Server</th><th>Nutzung</th><th>P(Warten)</th><th>Ø Wartende</th><th>Ø Wartezeit</th><th>Servicelevel</th><th></th></tr></thead><tbody>';
   scenC.forEach((s, i) => {
@@ -535,8 +569,27 @@ function renderScenC() {
       <td><button class="btn ghost small" type="button" data-del-c="${i}">Entfernen</button></td></tr>`;
   });
   $('c-scen').innerHTML = h + '</tbody></table>';
+  drawScenC();
   document.querySelectorAll('[data-del-c]').forEach(b => b.addEventListener('click', () => { scenC.splice(+b.dataset.delC, 1); store(KEY_C, scenC); renderScenC(); }));
 }
+let chartSB = null, chartSC = null;
+function drawScenB() {
+  if (!window.Chart || !scenB.length) return;
+  const data = { labels: scenB.map(x => x.name), datasets: [
+    { type: 'bar', label: 'Auslastung [%]', data: scenB.map(x => x.occ * 100), yAxisID: 'y', backgroundColor: css('--chart-a'), order: 2 },
+    { type: 'bar', label: 'Abweisung [%]', data: scenB.map(x => x.B * 100), yAxisID: 'y', backgroundColor: css('--chart-b'), order: 2 },
+    { type: 'line', label: 'Betten', data: scenB.map(x => x.c), yAxisID: 'y2', borderColor: css('--muted'), backgroundColor: css('--muted'), borderWidth: 0, showLine: false, pointRadius: 6, pointStyle: 'rectRot', order: 1 } ] };
+  chartSB = drawChart(chartSB, 'b-scen-chart', data, 'Szenario', { y: { min: 0, max: 100, title: 'Prozent' }, y2: { min: 0, title: 'Betten' } }, 'bar');
+}
+function drawScenC() {
+  if (!window.Chart || !scenC.length) return;
+  const st = scenC.map(x => x.stable);
+  const data = { labels: scenC.map(x => x.name), datasets: [
+    { type: 'bar', label: 'Durchschnittliche Wartezeit [Min.]', data: scenC.map((x, i) => st[i] ? x.wq : null), yAxisID: 'y', backgroundColor: css('--chart-a'), order: 2 },
+    { type: 'line', label: 'Servicelevel [%]', data: scenC.map((x, i) => st[i] ? x.sl * 100 : null), yAxisID: 'y2', borderColor: css('--chart-b'), backgroundColor: css('--chart-b'), borderWidth: 0, showLine: false, pointRadius: 6, order: 1 } ] };
+  chartSC = drawChart(chartSC, 'c-scen-chart', data, 'Szenario', { y: { min: 0, title: 'Minuten' }, y2: { min: 0, max: 100, title: 'Prozent' } }, 'bar');
+}
+
 $('b-save').addEventListener('click', () => {
   const r = lastB; if (!r || r.A <= 0) return;
   const name = $('b-name').value.trim() || `Szenario ${scenB.length + 1}`;
@@ -553,7 +606,7 @@ $('c-save').addEventListener('click', () => {
 /* ---------- Ereignisse ---------- */
 document.querySelectorAll('#view-b input, #view-b select').forEach(el => { el.addEventListener('input', calcB); el.addEventListener('change', calcB); });
 document.querySelectorAll('#view-c input, #view-c select').forEach(el => el.addEventListener('input', calcC));
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { calcB(); calcC(); });
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { calcB(); calcC(); drawScenB(); drawScenC(); });
 
 renderScenB(); renderScenC();
 calcB(); calcC();
