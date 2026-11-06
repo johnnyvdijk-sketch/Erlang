@@ -1,0 +1,14 @@
+Kapazitätsrechner Erlang B und C
+Copyright (c) 2026 Johnny van Dijk, Vetterli Roth & Partners. Alle Rechte vorbehalten.
+
+Die Nutzung des Tools über https://johnnyvdijk-sketch.github.io/Erlang/ ist für den
+Unterricht erlaubt.
+
+Code, Gestaltung und Texte dieses Tools sind urheberrechtlich geschützt. Kopieren,
+Verändern und Weiterverbreiten, ganz oder teilweise, sind nur mit vorheriger
+schriftlicher Zustimmung von Johnny van Dijk, Vetterli Roth & Partners, erlaubt.
+Anfragen über https://www.vetterlirothpartners.com/
+
+Ausgenommen ist die eingebundene Bibliothek Chart.js v4.4.1
+(https://www.chartjs.org), (c) Chart.js Contributors. Sie steht unter der
+MIT-Lizenz. Der zugehörige Lizenzhinweis ist in index.html enthalten.
